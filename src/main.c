@@ -38,7 +38,7 @@
 
 // ---- TEMPORARY hardware tests: set ONE of these to 1 ----
 #define RUN_DISPLAY_TEST 0
-#define RUN_RTC_TEST     1
+#define RUN_RTC_TEST     0
 
 // TAG จะขึ้นหน้าทุกข้อความ log ของไฟล์นี้
 // static = ใช้ได้เฉพาะในไฟล์นี้ ไฟล์อื่นตั้งชื่อ TAG ซ้ำได้โดยไม่ชนกัน

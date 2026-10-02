@@ -14,7 +14,7 @@ static const char *TAG = "rtc_test";
 
 // 1 = always overwrite the RTC with the build time (use once if the time is wrong).
 // 0 = only set it when the RTC has no valid time (normal).
-#define RTC_TEST_FORCE_SET 1
+#define RTC_TEST_FORCE_SET 0
 
 // Builds a struct tm from the moment this file was compiled.
 // __DATE__ looks like "Oct  3 2026", __TIME__ like "14:05:33".
