@@ -32,6 +32,7 @@
 #include "settings.h"
 #include "timekeeping.h"
 #include "ui.h"
+#include "display_test.h"   // ← เพิ่มใต้ #include "ui.h"
 
 // TAG จะขึ้นหน้าทุกข้อความ log ของไฟล์นี้
 // static = ใช้ได้เฉพาะในไฟล์นี้ ไฟล์อื่นตั้งชื่อ TAG ซ้ำได้โดยไม่ชนกัน
@@ -130,6 +131,8 @@ void app_main(void)
         ESP_LOGW(TAG, "========== boot complete: %d module(s) failed ==========",
                  s_failed_modules);
     }
+
+    display_smoke_test();   // ← เรียกฟังก์ชันทดสอบ LED matrix
 
     // app_main จบตรงนี้ แต่บอร์ดไม่ดับ task ของ ui ยังทำงานต่อเบื้องหลัง
 }

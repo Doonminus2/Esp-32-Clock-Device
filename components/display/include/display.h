@@ -20,6 +20,8 @@ typedef struct {
 /**
  * Brings up the SPI bus and the MAX7219 chain (4x 8x8 modules).
  * Must be called once before any other display_* function.
+ * Note: the MAX7219 is write-only, so ESP_OK means "SPI is configured",
+ * not "a panel answered". Check the LEDs with the smoke test.
  */
 esp_err_t display_init(void);
 
@@ -41,14 +43,19 @@ void display_draw_pixel(display_framebuffer_t *fb, int x, int y, bool on);
 /**
  * Draws one glyph at (x, y), where (x, y) is the glyph's top-left corner.
  * y may be negative or run past DISPLAY_HEIGHT - rows outside the visible
- * area must be clipped, not wrapped, so the roll-up animation in
+ * area are clipped, not wrapped, so the roll-up animation in
  * docs/DESIGN.md section 5.2 can push digits off the top and in from the
- * bottom. glyph is glyph_height rows of glyph_width bits each, MSB-first per
- * row, supplied by a font table defined elsewhere (not in this component).
+ * bottom.
+ *
+ * glyph is an array of glyph_height bytes, one per row (top row first).
+ * In each byte, bit (glyph_width - 1) is the LEFTMOST pixel and bit 0 the
+ * rightmost, so a 4-wide row ".##." is written 0b0110.
+ * Only "on" pixels are drawn (transparent background): clear the area
+ * first if something else was drawn there.
  */
 void display_draw_glyph(display_framebuffer_t *fb, int x, int y,
-                         const uint8_t *glyph, uint8_t glyph_width,
-                         uint8_t glyph_height);
+                        const uint8_t *glyph, uint8_t glyph_width,
+                        uint8_t glyph_height);
 
 /** Sends the full framebuffer to the physical MAX7219 chain in one shot. */
 esp_err_t display_flush(const display_framebuffer_t *fb);
