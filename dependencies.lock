@@ -112,6 +112,6 @@ direct_dependencies:
 - espressif/button
 - espressif/network_provisioning
 - idf
-manifest_hash: 43433581eaa6f390e088230728457ea20118ee7c38c8d7ccd105bad1a144b342
+manifest_hash: 18b56bcd800a431c490db232aeac94aa9d8522178e633c17b581b452ef99524b
 target: esp32
 version: 3.0.0

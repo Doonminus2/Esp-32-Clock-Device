@@ -48,7 +48,8 @@
 components/
 ├── board/         ขา GPIO + ค่าคงที่ฮาร์ดแวร์ (header อย่างเดียว)
 ├── display/       max7219 + framebuffer 32×8 + ฟอนต์ + วาด glyph/ข้อความ
-├── rtc/           ห่อ ds1302: อ่าน/เขียนเวลา, เช็กว่าเวลา valid
+├── app_rtc/       ห่อ ds1302: อ่าน/เขียนเวลา, เช็กว่าเวลา valid
+│                  (ชื่อ app_rtc ไม่ใช่ rtc เพราะชน rtc_init() ของ esp_hw_support)
 ├── timekeeping/   เวลาของทั้งระบบ: RTC ↔ system time, TZ
 ├── input/         T1, T2, ปุ่มกด ผ่าน espressif/button → ส่ง event
 ├── buzzer/        LEDC: beep patterns, เสียงปลุก
@@ -75,7 +76,7 @@ display input buzzer settings  net
    │    │                       │
    │    │       timekeeping ◄───┘
    │    │           │
-   └────┴── board ──┴── rtc
+   └────┴── board ──┴── app_rtc
 ```
 
 ## 5. การแสดงผล
@@ -240,7 +241,7 @@ Provisioning ใช้ `espressif/network_provisioning` แบบ SoftAP (IDF 6 
 | 1 | `board` | build ผ่าน, ขาทั้งหมดอยู่ที่ไฟล์เดียว |
 | 2 | `display` | จอติดทุกจุด, ทิศแผ่นถูก, แสดง `12:34` + `56` ตาม layout ก |
 | 3 | `display` แอนิเมชัน | ตัวเลขนับ 0–9 ม้วนขึ้นลื่น 400 ms |
-| 4 | `rtc` + `timekeeping` | อ่าน/เขียน DS1302 ได้, ถอดปลั๊กแล้วเวลาไม่หาย |
+| 4 | `app_rtc` + `timekeeping` | อ่าน/เขียน DS1302 ได้, ถอดปลั๊กแล้วเวลาไม่หาย |
 | 5 | `input` | log แสดง event ของ T1/T2/ปุ่ม ถูกต้อง, รู้ active level ของปุ่ม |
 | 6 | `buzzer` | beep ทุกรูปแบบในข้อ 6.3 |
 | 7 | `ui` โหมดนาฬิกา + วันที่ + เมนูตั้งเวลา | ใช้เป็นนาฬิกาออฟไลน์ได้ครบ |
