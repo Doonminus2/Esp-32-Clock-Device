@@ -31,3 +31,28 @@
 //   - GPIO6-11 (flash), GPIO12 (strapping)
 // Spare pins available if something needs one later:
 //   - GPIO4, GPIO13, GPIO16, GPIO17
+
+
+#pragma once // include guard กันไม่ให่ header file ถูก include ซ้ำ
+
+#include "driver/gpio.h"        // gpio_num_t, GPIO_NUM_xx
+#include "driver/spi_common.h"  // spi_host_device_t, SPI3_HOST
+
+// ---------- MAX7219 LED matrix (SPI) ----------
+#define BOARD_DISPLAY_SPI_HOST   SPI3_HOST     // VSPI ตัว controllerที่ใช้กับ MAX7219 ให้รู้ว่ากำลังส่งงาน martix ตัวไหน
+#define BOARD_PIN_DISPLAY_DIN    GPIO_NUM_23
+#define BOARD_PIN_DISPLAY_CLK    GPIO_NUM_18
+#define BOARD_PIN_DISPLAY_CS     GPIO_NUM_5
+
+// ---------- DS1302 RTC ----------
+#define BOARD_PIN_RTC_CLK        GPIO_NUM_14
+#define BOARD_PIN_RTC_DAT        GPIO_NUM_27
+#define BOARD_PIN_RTC_RST        GPIO_NUM_26
+
+// ---------- Inputs ----------
+#define BOARD_PIN_BUTTON_ENTER   GPIO_NUM_25
+#define BOARD_PIN_TOUCH_PREV     GPIO_NUM_32   // T1
+#define BOARD_PIN_TOUCH_NEXT     GPIO_NUM_33   // T2
+
+// ---------- Buzzer ----------
+#define BOARD_PIN_BUZZER         GPIO_NUM_19
