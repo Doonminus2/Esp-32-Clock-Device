@@ -16,7 +16,7 @@ static const char *TAG = "display";
 #define DISPLAY_MODULES             4        // four 8x8 matrices = 32x8
 #define DISPLAY_SPI_CLOCK_HZ        1000000  // 1 MHz: safe with 3.3V logic and jumper wires
 #define DISPLAY_MAX_BRIGHTNESS      8        // DESIGN.md section 2: keep VIN current in check
-#define DISPLAY_DEFAULT_BRIGHTNESS  2
+#define DISPLAY_DEFAULT_BRIGHTNESS  0
 
 // Panel orientation. Run the smoke test and flip these (0 <-> 1) until
 // step 2 reads "1 2 3 4" left to right, upright.

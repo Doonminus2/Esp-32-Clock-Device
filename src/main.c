@@ -33,6 +33,12 @@
 #include "timekeeping.h"
 #include "ui.h"
 #include "display_test.h"   // ← เพิ่มใต้ #include "ui.h"
+#include "rtc_test.h"      // ← เพิ่มใต้ #include "display_test.h"
+
+
+// ---- TEMPORARY hardware tests: set ONE of these to 1 ----
+#define RUN_DISPLAY_TEST 0
+#define RUN_RTC_TEST     1
 
 // TAG จะขึ้นหน้าทุกข้อความ log ของไฟล์นี้
 // static = ใช้ได้เฉพาะในไฟล์นี้ ไฟล์อื่นตั้งชื่อ TAG ซ้ำได้โดยไม่ชนกัน
@@ -124,7 +130,7 @@ void app_main(void)
     err = ui_init();
     report_critical("ui", "screens + state machine (own task)", err);
 
-    // ---------- สรุป ----------
+        // ---------- สรุป ----------
     if (s_failed_modules == 0) {
         ESP_LOGI(TAG, "========== boot complete: all modules OK ==========");
     } else {
@@ -132,7 +138,12 @@ void app_main(void)
                  s_failed_modules);
     }
 
-    display_smoke_test();   // ← เรียกฟังก์ชันทดสอบ LED matrix
+    // TEMPORARY: hardware checks. Each one never returns.
+#if RUN_DISPLAY_TEST
+    display_smoke_test();
+#elif RUN_RTC_TEST
+    rtc_smoke_test();
+#endif
 
     // app_main จบตรงนี้ แต่บอร์ดไม่ดับ task ของ ui ยังทำงานต่อเบื้องหลัง
 }
