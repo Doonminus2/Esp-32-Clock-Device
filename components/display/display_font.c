@@ -1,5 +1,7 @@
 #include "display_font.h"
 
+#include <stddef.h>   // NULL
+
 // 4x7 digits for HH:MM. Each row: bit 3 = left pixel ... bit 0 = right pixel.
 const uint8_t font_big_digits[10][FONT_BIG_H] = {
     {0b0110, 0b1001, 0b1001, 0b1001, 0b1001, 0b1001, 0b0110}, // 0
@@ -27,3 +29,53 @@ const uint8_t font_small_digits[10][FONT_SMALL_H] = {
     {0b111, 0b101, 0b111, 0b101, 0b111}, // 8
     {0b111, 0b101, 0b111, 0b001, 0b111}, // 9
 };
+
+// 3x5 ตัวอักษร A-Z (ใช้กับป้ายเมนู TIME DATE EXIT, ONLINE/OFFLINE, SETUP ...)
+static const uint8_t font_small_letters[26][FONT_SMALL_H] = {
+    {0b010, 0b101, 0b111, 0b101, 0b101}, // A
+    {0b110, 0b101, 0b110, 0b101, 0b110}, // B
+    {0b011, 0b100, 0b100, 0b100, 0b011}, // C
+    {0b110, 0b101, 0b101, 0b101, 0b110}, // D
+    {0b111, 0b100, 0b110, 0b100, 0b111}, // E
+    {0b111, 0b100, 0b110, 0b100, 0b100}, // F
+    {0b011, 0b100, 0b101, 0b101, 0b011}, // G
+    {0b101, 0b101, 0b111, 0b101, 0b101}, // H
+    {0b111, 0b010, 0b010, 0b010, 0b111}, // I
+    {0b001, 0b001, 0b001, 0b101, 0b010}, // J
+    {0b101, 0b101, 0b110, 0b101, 0b101}, // K
+    {0b100, 0b100, 0b100, 0b100, 0b111}, // L
+    {0b101, 0b111, 0b111, 0b101, 0b101}, // M
+    {0b110, 0b101, 0b101, 0b101, 0b101}, // N
+    {0b010, 0b101, 0b101, 0b101, 0b010}, // O
+    {0b110, 0b101, 0b110, 0b100, 0b100}, // P
+    {0b010, 0b101, 0b101, 0b110, 0b011}, // Q
+    {0b110, 0b101, 0b110, 0b101, 0b101}, // R
+    {0b011, 0b100, 0b010, 0b001, 0b110}, // S
+    {0b111, 0b010, 0b010, 0b010, 0b010}, // T
+    {0b101, 0b101, 0b101, 0b101, 0b111}, // U
+    {0b101, 0b101, 0b101, 0b101, 0b010}, // V
+    {0b101, 0b101, 0b111, 0b111, 0b101}, // W
+    {0b101, 0b101, 0b010, 0b101, 0b101}, // X
+    {0b101, 0b101, 0b010, 0b010, 0b010}, // Y
+    {0b111, 0b001, 0b010, 0b100, 0b111}, // Z
+};
+
+static const uint8_t font_small_slash[FONT_SMALL_H] = {0b001, 0b001, 0b010, 0b100, 0b100};
+static const uint8_t font_small_dash[FONT_SMALL_H]  = {0b000, 0b000, 0b111, 0b000, 0b000};
+
+const uint8_t *font_small_glyph(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return font_small_digits[c - '0'];   // '7' - '0' = 7
+    }
+    if (c >= 'A' && c <= 'Z') {
+        return font_small_letters[c - 'A']; // 'C' - 'A' = 2
+    }
+    if (c == '/') {
+        return font_small_slash;
+    }
+    if (c == '-') {
+        return font_small_dash;
+    }
+    return NULL;
+}

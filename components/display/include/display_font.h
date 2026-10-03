@@ -15,3 +15,7 @@
 
 extern const uint8_t font_big_digits[10][FONT_BIG_H];
 extern const uint8_t font_small_digits[10][FONT_SMALL_H];
+
+// 3x5 glyph for one character: '0'-'9', 'A'-'Z', '/', '-'.
+// Returns NULL for anything else (e.g. a space): draw nothing, just advance.
+const uint8_t *font_small_glyph(char c);
