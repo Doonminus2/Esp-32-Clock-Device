@@ -3,7 +3,7 @@
 A desk clock built on an ESP32 with a red 32×8 LED dot-matrix display, housed in a glossy black acrylic case. Time is kept by a battery-backed RTC and corrected over WiFi with NTP, so the clock keeps running even when the network is down.
 
 <!-- Replace with a photo of the finished clock: docs/images/clock.jpg -->
-![Finished clock](https://placehold.co/800x300?text=Photo+of+the+finished+clock)
+![Finished clock](/docs/images/digital-clock.jpg)
 
 ## Features
 
