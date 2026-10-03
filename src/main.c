@@ -146,4 +146,5 @@ void app_main(void)
 #endif
 
     // app_main จบตรงนี้ แต่บอร์ดไม่ดับ task ของ ui ยังทำงานต่อเบื้องหลัง
+    buzzer_play(BUZZER_PATTERN_WIFI_ENTER);
 }

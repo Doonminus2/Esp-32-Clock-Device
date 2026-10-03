@@ -6,13 +6,15 @@
  *   2. เปลี่ยน state ตามเวลา/สถานะภายนอก        update_state()
  *   3. วาดจอใหม่ทั้งเฟรมแล้วส่งทีเดียว          draw() + display_flush()
  *
- * รอบนี้มี: หน้านาฬิกา, ป้าย ONLINE/OFFLINE, เมนูตั้งเวลา/วันที่, หน้า SETUP (WiFi)
- * ยังไม่มี: โหมดวันที่/จับเวลา/ปลุก, ตัวเลขม้วน, เมนู 12H/NITE/BRT
+ * โหมดหลัก 4 โหมด สลับด้วย T1 ◀ / T2 ▶ (วนรอบ):
+ *   นาฬิกา (CLK) → วันที่ (DATE) → จับเวลา (STW) → ปลุก (ALM)
+ * ทุกโหมด: กดปุ่มค้าง 3 วิ = เมนู (TIME / DATE / ALRM / EXIT)
  */
 #include "ui.h"
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -24,6 +26,7 @@
 #include "freertos/task.h"
 #include "input.h"
 #include "net.h"
+#include "settings.h"
 #include "timekeeping.h"
 
 static const char *TAG = "ui";
@@ -34,13 +37,29 @@ static const char *TAG = "ui";
 
 #define UI_TICK_MS           50
 #define UI_BLINK_MS          500
+#define UI_LABEL_MS          800     // ป้ายชื่อโหมดค้าง 0.8 วิ (DESIGN.md 5.6)
+#define UI_SCROLL_MS         50      // หน้าวันที่เลื่อน 1 จุดทุก 50 ms
 #define UI_NET_STATUS_MS     2000    // ป้าย ONLINE/OFFLINE ค้างไว้ 2 วิ
 #define UI_MENU_TIMEOUT_MS   30000   // ไม่แตะอะไร 30 วิ → ออกจากเมนู ไม่บันทึก
+#define UI_ALARM_RING_MS     60000   // ปลุกดังนานสุด 60 วิ
 #define UI_TASK_STACK        4096
 #define UI_TASK_PRIO         5
 
 #define UI_TEXT_Y            1       // ตัวอักษรสูง 5 แถว วางที่ y=1 จะอยู่กลางจอ 8 แถว
+#define UI_SMALL_Y           2       // ตัวเล็กในช่องวินาที ชิดล่างเท่ากับตัวใหญ่
 #define UI_DEFAULT_YEAR      2026    // วันที่ตั้งต้น ถ้ายังไม่เคยมีเวลาเลย
+
+// ---------------------------------------------------------------------------
+// โหมดหลัก
+// ---------------------------------------------------------------------------
+
+static const ui_state_t MODES[] = {
+    UI_STATE_MODE_CLOCK, UI_STATE_MODE_DATE, UI_STATE_MODE_STOPWATCH, UI_STATE_MODE_ALARM,
+};
+static const char *const MODE_LABELS[] = { "CLK", "DATE", "STW", "ALM" };
+#define MODE_COUNT 4
+
+static const char *const DAY_NAMES[7] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 
 // ---------------------------------------------------------------------------
 // เมนู
@@ -49,11 +68,12 @@ static const char *TAG = "ui";
 typedef enum {
     MENU_TIME,
     MENU_DATE,
+    MENU_ALARM,
     MENU_EXIT,
     MENU_COUNT,      // ตัวสุดท้าย = จำนวนรายการ (เทคนิคที่ใช้กันบ่อยใน C)
 } menu_item_t;
 
-static const char *const MENU_LABELS[MENU_COUNT] = { "TIME", "DATE", "EXIT" };
+static const char *const MENU_LABELS[MENU_COUNT] = { "TIME", "DATE", "ALRM", "EXIT" };
 
 // ช่องหนึ่งช่องที่กำลังแก้ เช่น ชั่วโมง (0–23)
 typedef struct {
@@ -75,6 +95,20 @@ static QueueHandle_t s_input_q = NULL;
 static uint32_t s_state_since_ms = 0;   // เวลาที่เข้า state ปัจจุบัน
 static uint32_t s_last_input_ms = 0;    // เวลาที่แตะ/กดล่าสุด
 
+// โหมดหลัก
+static int s_mode_index = 0;            // ช่องใน MODES[] ที่อยู่ตอนนี้
+static uint32_t s_label_until_ms = 0;   // แสดงป้ายชื่อโหมดถึงเวลานี้
+
+// จับเวลา: เวลาที่สะสมไว้ + (ถ้ากำลังเดิน) เวลาตั้งแต่กดเริ่ม
+static bool s_sw_running = false;
+static uint32_t s_sw_start_ms = 0;
+static uint32_t s_sw_acc_ms = 0;
+
+// ปลุก
+static ui_state_t s_ring_return = UI_STATE_MODE_CLOCK; // ปลุกจบแล้วกลับไป state ไหน
+static int s_last_alarm_key = -1;       // นาทีที่ปลุกไปแล้ว กันปลุกซ้ำในนาทีเดียวกัน
+
+// เมนู
 static int s_menu_index = 0;            // รายการเมนูที่เลือกอยู่
 static bool s_editing = false;          // false = เลือกรายการ, true = กำลังแก้ค่า
 static menu_item_t s_edit_item;
@@ -122,7 +156,7 @@ static void draw_big(int x, int digit)
 
 static void draw_small(int x, int digit)
 {
-    display_draw_glyph(&s_fb, x, 2, font_small_digits[digit], FONT_SMALL_W, FONT_SMALL_H);
+    display_draw_glyph(&s_fb, x, UI_SMALL_Y, font_small_digits[digit], FONT_SMALL_W, FONT_SMALL_H);
 }
 
 static void draw_big_colon(void)
@@ -131,46 +165,28 @@ static void draw_big_colon(void)
     display_draw_pixel(&s_fb, 10, 4, true);
 }
 
-// HH:MM ตัวใหญ่ ซ่อนชั่วโมง/นาทีได้ (ใช้ทำกะพริบตอนตั้งเวลา)
-static void draw_hhmm(int hour, int min, bool show_hour, bool show_min)
+// ตัวเลข 2 คู่ตัวใหญ่ "AA:BB" ซ่อนคู่ซ้าย/ขวาได้ (ใช้ทำกะพริบตอนตั้งค่า)
+// ใช้ได้ทั้ง HH:MM (นาฬิกา) และ MM:SS (จับเวลา)
+static void draw_big_pair(int left, int right, bool show_left, bool show_right)
 {
-    if (show_hour) {
-        draw_big(0, hour / 10);
-        draw_big(5, hour % 10);
+    if (show_left) {
+        draw_big(0, left / 10);
+        draw_big(5, left % 10);
     }
-    if (show_min) {
-        draw_big(12, min / 10);
-        draw_big(17, min % 10);
+    if (show_right) {
+        draw_big(12, right / 10);
+        draw_big(17, right % 10);
     }
     draw_big_colon();
 }
 
-static void draw_clock(const struct tm *t)
+// ตัวเลข 2 หลักตัวเล็กในช่องวินาที (คอลัมน์ 22–30)
+static void draw_small_pair(int value)
 {
-    draw_hhmm(t->tm_hour, t->tm_min, true, true);
-    draw_small(24, t->tm_sec / 10);
-    draw_small(28, t->tm_sec % 10);
-    display_draw_pixel(&s_fb, 22, 3, true);    // โคลอนเล็กหน้าวินาที
+    display_draw_pixel(&s_fb, 22, 3, true);    // โคลอนเล็ก
     display_draw_pixel(&s_fb, 22, 5, true);
-
-    // จุดสถานะคอลัมน์ 31 แถว 7: ติด = ยังไม่ได้เวลาจากอินเทอร์เน็ต
-    if (net_get_state() != NET_STATE_SYNCED) {
-        display_draw_pixel(&s_fb, 31, 7, true);
-    }
-}
-
-static void draw_no_time(void)
-{
-    if (!((now_ms() / UI_BLINK_MS) % 2 == 0)) {
-        return;
-    }
-    const int dash_x[] = {0, 5, 12, 17};
-    for (int i = 0; i < 4; i++) {
-        for (int dx = 0; dx < FONT_BIG_W; dx++) {
-            display_draw_pixel(&s_fb, dash_x[i] + dx, 3, true);
-        }
-    }
-    draw_big_colon();
+    draw_small(24, value / 10);
+    draw_small(28, value % 10);
 }
 
 // ข้อความฟอนต์ 3×5 แต่ละตัวกว้าง 3 + ช่องว่าง 1
@@ -196,6 +212,98 @@ static void draw_text_centered(const char *s)
     draw_text((DISPLAY_WIDTH - text_width(s)) / 2, UI_TEXT_Y, s);
 }
 
+// ---- หน้าต่างๆ ----
+
+static void draw_clock(void)
+{
+    struct tm t;
+    timekeeping_now(&t);
+    draw_big_pair(t.tm_hour, t.tm_min, true, true);
+    draw_small_pair(t.tm_sec);
+
+    settings_t st;
+    settings_get(&st);
+    // คอลัมน์ 31: แถว 0 = เปิดปลุกอยู่, แถว 7 = ยังไม่ได้เวลาจากอินเทอร์เน็ต
+    if (st.alarm_enabled) {
+        display_draw_pixel(&s_fb, 31, 0, true);
+    }
+    if (net_get_state() != NET_STATE_SYNCED) {
+        display_draw_pixel(&s_fb, 31, 7, true);
+    }
+}
+
+// "FRI 3/10/26" กว้างเกินจอ → เลื่อนจากขวาไปซ้ายวนไปเรื่อยๆ (DESIGN.md 5.3)
+static void draw_date(uint32_t shown_ms)
+{
+    struct tm t;
+    timekeeping_now(&t);
+
+    char buf[32];   // เผื่อพอสำหรับทุกค่าที่ int เป็นได้ (คอมไพเลอร์เช็กให้)
+    snprintf(buf, sizeof(buf), "%s %d/%d/%02d", DAY_NAMES[t.tm_wday],
+             t.tm_mday, t.tm_mon + 1, (t.tm_year + 1900) % 100);
+
+    // ข้อความเริ่มจากขอบขวา (x=32) เลื่อนออกไปทางซ้ายจนหายหมด แล้ววนใหม่
+    int period = text_width(buf) + DISPLAY_WIDTH;
+    int step = (shown_ms / UI_SCROLL_MS) % period;
+    draw_text(DISPLAY_WIDTH - step, UI_TEXT_Y, buf);
+}
+
+static uint32_t stopwatch_elapsed_ms(void)
+{
+    return s_sw_acc_ms + (s_sw_running ? now_ms() - s_sw_start_ms : 0);
+}
+
+// ไม่ถึง 1 ชม.: MM:SS ตัวใหญ่ + เศษวินาที (1/100) ตัวเล็ก
+// เกิน 1 ชม.:   HH:MM ตัวใหญ่ + วินาที ตัวเล็ก (DESIGN.md 5.4)
+static void draw_stopwatch(void)
+{
+    uint32_t ms = stopwatch_elapsed_ms();
+    uint32_t sec = ms / 1000;
+
+    if (sec < 3600) {
+        draw_big_pair(sec / 60, sec % 60, true, true);
+        draw_small_pair((ms / 10) % 100);
+    } else {
+        uint32_t hours = sec / 3600;
+        draw_big_pair(hours > 99 ? 99 : hours, (sec / 60) % 60, true, true);
+        draw_small_pair(sec % 60);
+    }
+}
+
+// เวลาปลุก HH:MM ตัวใหญ่ + "ON" หรือ "--" ในช่องวินาที (DESIGN.md 5.5)
+static void draw_alarm(void)
+{
+    settings_t st;
+    settings_get(&st);
+    draw_big_pair(st.alarm_hour, st.alarm_minute, true, true);
+    draw_text(24, UI_SMALL_Y, st.alarm_enabled ? "ON" : "--");
+}
+
+static void draw_ringing(void)
+{
+    // กะพริบเร็ว 4 ครั้ง/วินาที ให้เห็นชัดว่ากำลังปลุก
+    if ((now_ms() / 250) % 2 == 0) {
+        settings_t st;
+        settings_get(&st);
+        draw_big_pair(st.alarm_hour, st.alarm_minute, true, true);
+        draw_text(24, UI_SMALL_Y, "AL");
+    }
+}
+
+static void draw_no_time(void)
+{
+    if ((now_ms() / UI_BLINK_MS) % 2 != 0) {
+        return;
+    }
+    const int dash_x[] = {0, 5, 12, 17};
+    for (int i = 0; i < 4; i++) {
+        for (int dx = 0; dx < FONT_BIG_W; dx++) {
+            display_draw_pixel(&s_fb, dash_x[i] + dx, 3, true);
+        }
+    }
+    draw_big_colon();
+}
+
 static void draw_menu(void)
 {
     if (!s_editing) {
@@ -204,10 +312,10 @@ static void draw_menu(void)
     }
 
     bool show = blink_visible();
-    if (s_edit_item == MENU_TIME) {
-        draw_hhmm(s_fields[0].value, s_fields[1].value,
-                  s_field_index != 0 || show,
-                  s_field_index != 1 || show);
+    if (s_edit_item == MENU_TIME || s_edit_item == MENU_ALARM) {
+        draw_big_pair(s_fields[0].value, s_fields[1].value,
+                      s_field_index != 0 || show,
+                      s_field_index != 1 || show);
     } else {
         // "DD/MM/YY" กว้าง 8×4−1 = 31 จุด พอดีจอ
         char buf[9];
@@ -232,14 +340,27 @@ static void draw_menu(void)
 static void draw(void)
 {
     display_clear(&s_fb);
+    uint32_t now = now_ms();
 
     switch (s_state) {
-    case UI_STATE_MODE_CLOCK: {
-        struct tm now;
-        timekeeping_now(&now);
-        draw_clock(&now);
+    case UI_STATE_MODE_CLOCK:
+    case UI_STATE_MODE_DATE:
+    case UI_STATE_MODE_STOPWATCH:
+    case UI_STATE_MODE_ALARM:
+        // ช่วงแรกหลังสลับโหมด: แสดงป้ายชื่อโหมดก่อน
+        // (int32_t)(a − b) < 0 อ่านว่า "a ยังมาไม่ถึง b" ปลอดภัยแม้ตัวนับวนรอบ
+        if ((int32_t)(now - s_label_until_ms) < 0) {
+            draw_text_centered(MODE_LABELS[s_mode_index]);
+        } else if (s_state == UI_STATE_MODE_CLOCK) {
+            draw_clock();
+        } else if (s_state == UI_STATE_MODE_DATE) {
+            draw_date(now - s_label_until_ms);
+        } else if (s_state == UI_STATE_MODE_STOPWATCH) {
+            draw_stopwatch();
+        } else {
+            draw_alarm();
+        }
         break;
-    }
     case UI_STATE_WAIT_TIME:
         draw_no_time();
         break;
@@ -248,6 +369,9 @@ static void draw(void)
         break;
     case UI_STATE_MENU:
         draw_menu();
+        break;
+    case UI_STATE_ALARM_RINGING:
+        draw_ringing();
         break;
     case UI_STATE_PROVISIONING:
         draw_text_centered("SETUP");
@@ -258,7 +382,96 @@ static void draw(void)
 }
 
 // ---------------------------------------------------------------------------
-// เมนูตั้งเวลา/วันที่
+// โหมดหลัก
+// ---------------------------------------------------------------------------
+
+static void switch_mode(int delta)
+{
+    s_mode_index = (s_mode_index + delta + MODE_COUNT) % MODE_COUNT;
+    s_label_until_ms = now_ms() + UI_LABEL_MS;
+    set_state(MODES[s_mode_index]);
+}
+
+// ปุ่มกดในหน้าจับเวลา วน 3 จังหวะ: เริ่ม → หยุด → รีเซ็ตเป็น 0
+static void stopwatch_enter(void)
+{
+    if (s_sw_running) {
+        s_sw_acc_ms = stopwatch_elapsed_ms();   // หยุด: เก็บเวลาที่เดินไปแล้ว
+        s_sw_running = false;
+        ESP_LOGI(TAG, "stopwatch stop at %lu ms", (unsigned long)s_sw_acc_ms);
+    } else if (s_sw_acc_ms > 0) {
+        s_sw_acc_ms = 0;                        // หยุดอยู่และมีค่า → รีเซ็ต
+        ESP_LOGI(TAG, "stopwatch reset");
+    } else {
+        s_sw_start_ms = now_ms();               // เป็น 0 อยู่ → เริ่ม
+        s_sw_running = true;
+        ESP_LOGI(TAG, "stopwatch start");
+    }
+}
+
+// ปุ่มกดในหน้าปลุก: เปิด/ปิดปลุก แล้วบันทึกลง NVS
+static void alarm_toggle(void)
+{
+    settings_t st;
+    settings_get(&st);
+    st.alarm_enabled = !st.alarm_enabled;
+    if (settings_set(&st) == ESP_OK) {
+        buzzer_play(BUZZER_PATTERN_SAVE);
+        ESP_LOGI(TAG, "alarm %s", st.alarm_enabled ? "ON" : "off");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ปลุก
+// ---------------------------------------------------------------------------
+
+static void start_ringing(void)
+{
+    s_ring_return = s_state;
+    buzzer_play(BUZZER_PATTERN_ALARM);
+    set_state(UI_STATE_ALARM_RINGING);
+}
+
+static void stop_ringing(void)
+{
+    buzzer_stop();
+    s_last_input_ms = now_ms();       // ถ้ากลับไปเมนู จะได้ไม่ timeout ทันที
+    set_state(s_ring_return);
+}
+
+// เรียกทุกรอบ: ถึงเวลาปลุกหรือยัง
+static void check_alarm(void)
+{
+    // ไม่ปลุกตอนยังไม่มีเวลา, ตอนตั้ง WiFi, หรือตอนกำลังปลุกอยู่แล้ว
+    if (s_state == UI_STATE_BOOT || s_state == UI_STATE_WAIT_TIME ||
+        s_state == UI_STATE_PROVISIONING || s_state == UI_STATE_ALARM_RINGING) {
+        return;
+    }
+
+    settings_t st;
+    settings_get(&st);
+    if (!st.alarm_enabled) {
+        return;
+    }
+
+    struct tm t;
+    timekeeping_now(&t);
+    if (t.tm_hour != st.alarm_hour || t.tm_min != st.alarm_minute) {
+        return;
+    }
+
+    // เลขประจำนาทีนี้ของปี: ปลุกนาทีละครั้ง กดหยุดแล้วไม่ดังซ้ำในนาทีเดียวกัน
+    int key = t.tm_yday * 24 * 60 + t.tm_hour * 60 + t.tm_min;
+    if (key == s_last_alarm_key) {
+        return;
+    }
+    s_last_alarm_key = key;
+    ESP_LOGI(TAG, "alarm %02d:%02d ringing", st.alarm_hour, st.alarm_minute);
+    start_ringing();
+}
+
+// ---------------------------------------------------------------------------
+// เมนูตั้งเวลา/วันที่/ปลุก
 // ---------------------------------------------------------------------------
 
 static int days_in_month(int month, int year)  // month 1–12
@@ -298,11 +511,17 @@ static void start_edit(menu_item_t item)
         set_field(0, t.tm_hour, 0, 23);
         set_field(1, t.tm_min, 0, 59);
         s_field_count = 2;
-    } else {
+    } else if (item == MENU_DATE) {
         set_field(0, t.tm_mday, 1, 31);
         set_field(1, t.tm_mon + 1, 1, 12);             // tm_mon นับ 0–11
         set_field(2, t.tm_year + 1900 - 2000, 24, 99); // แสดงปี 2 หลัก (2024–2099)
         s_field_count = 3;
+    } else {
+        settings_t st;
+        settings_get(&st);
+        set_field(0, st.alarm_hour, 0, 23);
+        set_field(1, st.alarm_minute, 0, 59);
+        s_field_count = 2;
     }
 }
 
@@ -321,7 +540,11 @@ static void adjust_field(int delta)
 static void leave_menu(void)
 {
     s_editing = false;
-    set_state(timekeeping_is_valid() ? UI_STATE_MODE_CLOCK : UI_STATE_WAIT_TIME);
+    if (timekeeping_is_valid()) {
+        set_state(MODES[s_mode_index]);     // กลับไปโหมดที่อยู่ก่อนเข้าเมนู
+    } else {
+        set_state(UI_STATE_WAIT_TIME);
+    }
 }
 
 static void open_menu(void)
@@ -334,7 +557,7 @@ static void open_menu(void)
     set_state(UI_STATE_MENU);
 }
 
-static void save_edit(void)
+static void save_time_or_date(void)
 {
     struct tm t;
     get_base_time(&t);
@@ -358,6 +581,28 @@ static void save_edit(void)
     esp_err_t err = timekeeping_set_time(&t);           // ตั้ง system clock + เขียน RTC
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "time set, but RTC write failed: %s", esp_err_to_name(err));
+    }
+}
+
+static void save_alarm(void)
+{
+    settings_t st;
+    settings_get(&st);
+    st.alarm_hour = s_fields[0].value;
+    st.alarm_minute = s_fields[1].value;
+    st.alarm_enabled = true;                            // ตั้งเวลาปลุกแล้ว = เปิดปลุกให้เลย
+    esp_err_t err = settings_set(&st);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "saving alarm failed: %s", esp_err_to_name(err));
+    }
+}
+
+static void save_edit(void)
+{
+    if (s_edit_item == MENU_ALARM) {
+        save_alarm();
+    } else {
+        save_time_or_date();
     }
     buzzer_play(BUZZER_PATTERN_SAVE);
     ESP_LOGI(TAG, "saved %s", MENU_LABELS[s_edit_item]);
@@ -421,6 +666,28 @@ static void start_provisioning(void)
     set_state(UI_STATE_PROVISIONING);
 }
 
+// ปุ่มในโหมดหลักทั้ง 4 (DESIGN.md 6.1–6.2)
+static void mode_handle_input(input_event_t ev)
+{
+    if (ev == INPUT_EVENT_PREV) {
+        switch_mode(-1);
+    } else if (ev == INPUT_EVENT_NEXT) {
+        switch_mode(+1);
+    } else if (ev == INPUT_EVENT_HOLD_3S) {
+        open_menu();
+    } else if (ev == INPUT_EVENT_ENTER) {
+        if (s_state == UI_STATE_MODE_CLOCK) {
+            set_state(UI_STATE_SHOW_NET_STATUS);
+        } else if (s_state == UI_STATE_MODE_STOPWATCH) {
+            stopwatch_enter();
+        } else if (s_state == UI_STATE_MODE_ALARM) {
+            alarm_toggle();
+        }
+        // MODE_DATE: ยังว่าง (DESIGN.md 10)
+    }
+    // PREV_REPEAT / NEXT_REPEAT: ไม่ใช้ในโหมดหลัก
+}
+
 static void handle_input(input_event_t ev)
 {
     s_last_input_ms = now_ms();
@@ -432,12 +699,10 @@ static void handle_input(input_event_t ev)
 
     switch (s_state) {
     case UI_STATE_MODE_CLOCK:
-        if (ev == INPUT_EVENT_ENTER) {
-            set_state(UI_STATE_SHOW_NET_STATUS);
-        } else if (ev == INPUT_EVENT_HOLD_3S) {
-            open_menu();
-        }
-        // PREV/NEXT: สลับโหมด วันที่/จับเวลา/ปลุก (รอบถัดไป)
+    case UI_STATE_MODE_DATE:
+    case UI_STATE_MODE_STOPWATCH:
+    case UI_STATE_MODE_ALARM:
+        mode_handle_input(ev);
         break;
 
     case UI_STATE_WAIT_TIME:
@@ -454,6 +719,10 @@ static void handle_input(input_event_t ev)
         menu_handle_input(ev);
         break;
 
+    case UI_STATE_ALARM_RINGING:
+        stop_ringing();                                 // แตะ/กดอะไรก็ได้ = หยุดปลุก
+        break;
+
     default:
         break;                                          // PROVISIONING: ไม่รับปุ่ม
     }
@@ -464,13 +733,17 @@ static void update_state(void)
 {
     uint32_t now = now_ms();
 
+    check_alarm();
+
     switch (s_state) {
     case UI_STATE_BOOT:
+        s_mode_index = 0;
         set_state(timekeeping_is_valid() ? UI_STATE_MODE_CLOCK : UI_STATE_WAIT_TIME);
         break;
 
     case UI_STATE_WAIT_TIME:
         if (timekeeping_is_valid()) {
+            s_mode_index = 0;
             set_state(UI_STATE_MODE_CLOCK);             // ได้เวลาจาก SNTP แล้ว
         } else if (!s_auto_menu_done && net_get_state() == NET_STATE_OFFLINE) {
             s_auto_menu_done = true;                    // ไม่มีเน็ต → ให้ตั้งเวลาเอง (ครั้งเดียว)
@@ -489,6 +762,13 @@ static void update_state(void)
         if (now - s_last_input_ms >= UI_MENU_TIMEOUT_MS) {
             ESP_LOGI(TAG, "menu timeout, nothing saved");
             leave_menu();
+        }
+        break;
+
+    case UI_STATE_ALARM_RINGING:
+        if (now - s_state_since_ms >= UI_ALARM_RING_MS) {
+            ESP_LOGI(TAG, "alarm stopped after 60 s");
+            stop_ringing();
         }
         break;
 
