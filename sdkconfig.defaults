@@ -1,2 +1,7 @@
 # sdkconfig.defaults
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+# WiFi provisioning (net.c ใช้ NETWORK_PROV_SECURITY_1 + PoP)
+CONFIG_ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_1=y
+
+# WiFi + provisioning ทำให้โปรแกรมเกือบ 1 MB → ใช้พาร์ทิชันแอป 1.5 MB
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
